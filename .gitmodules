@@ -10,3 +10,6 @@
 [submodule "lib/oz"]
 	path = lib/oz
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts
+[submodule "lib/primitive"]
+	path = lib/primitive
+	url = https://github.com/primitivefinance/rmm-core
