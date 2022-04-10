@@ -16,7 +16,8 @@ import "@oz/token/ERC721/IERC721.sol";
  * @author verumlotus 
  */
 contract FractionalizedOption {
-    using SafeERC20 for IERC20;
+    using SafeERC20 for IERC20; 
+    using SafeERC20 for IFractionalVault;
 
     /************************************************
      *  STORAGE
@@ -93,54 +94,43 @@ contract FractionalizedOption {
     }
 
     /**
-     * @notice creates a Primitive Pool with specified parameters, and optionally franctionalizes the NFT
-     * @dev if fractionalize is set to true, user must approve this contract to control NFT
-     * @param _fractionalize true if we wish to fractionalize the specified NFT via fractional.art
+     * @notice Franctionalizes the NFT and creates a Primitive Pool with specified parameters
+     * @dev User must approve this contract to control NFT
      * @param _stable the ERC20 token representing the stable asset
-     * @param _engine the Primitive Engine for this asset/stable pair. Set to 0x0 if NFT has not been fractionalized yet
-     * @param _fractionalArtVault the fractional art token vault. Also doubles as ERC20 token. Set to 0x0 if NFT has not been fractionalized yet
      * @param _fractionalParams helper parameters if we fractionalize this NFT (if not, pass in uninitialized struct)
      * @param _primitivePoolParams helper parameters for creating the primitive engine & pool
      */
-    constructor(bool _fractionalize, address _stable, address _engine, address _fractionalArtVault, FractionalParams memory _fractionalParams, PrimitivePoolParams memory _primitivePoolParams) {
+    constructor(address _stable, FractionalParams memory _fractionalParams, PrimitivePoolParams memory _primitivePoolParams) {
         stable = IERC20(_stable);
-        engine = IPrimitiveEngine(_engine);
-        fractionalArtVault = IFractionalVault(_fractionalArtVault);
-        
-        // First, fractionalize the NFT if we are requested to do so
-        if (_fractionalize) {
-            // Cache on stack
-            address _token = _fractionalParams.nftToken;
-            uint256 _tokenId = _fractionalParams.tokenId;
 
-            // Transfer NFT to this contract
-            IERC721(_token).safeTransferFrom(msg.sender, address(this), _tokenId);
-            IERC721(_token).approve(address(fractionalArtFactory), _tokenId);
-            // Fix supply at 10^18
-            uint256 vaultId = fractionalArtFactory.mint(_fractionalParams.name, _fractionalParams.symbol, _token, _tokenId, 1e36, _fractionalParams.listPrice, _fractionalParams.fee);
+        // First, fractionalize the NFT
+        // Cache on stack
+        address _token = _fractionalParams.nftToken;
+        uint256 _tokenId = _fractionalParams.tokenId;
 
-            fractionalArtVault = fractionalArtFactory.vaults(vaultId);
-            fractionalArtVault.updateCurator(msg.sender);
-        }
+        // Transfer NFT to this contract
+        IERC721(_token).safeTransferFrom(msg.sender, address(this), _tokenId);
+        IERC721(_token).approve(address(fractionalArtFactory), _tokenId);
+        uint256 vaultId = fractionalArtFactory.mint(_fractionalParams.name, _fractionalParams.symbol, _token, _tokenId, 1e36, _fractionalParams.listPrice, _fractionalParams.fee);
+
+        fractionalArtVault = IFractionalVault(fractionalArtFactory.vaults(vaultId));
+        fractionalArtVault.updateCurator(msg.sender);
 
         // Primitive Finance Logic
-        // Check if the engine for (asset, stable) has already been deployed
-        // Use bool condition shortcircuit with _fractionalize to avoid external contract call if possible
-        if (_fractionalize || primFactory.getEngine(address(fractionalArtVault), _stable) == ZERO_ADDRESS) {
-            //TODO
-            // Create the engine
-            engine = IPrimitiveEngine(primFactory.deploy(address(fractionalArtVault), address(stable)));
-            engine.create(
-                _primitivePoolParams.strike,
-                _primitivePoolParams.sigma, 
-                _primitivePoolParams.maturity, 
-                _primitivePoolParams.gamma, 
-                _primitivePoolParams.riskyPerLp, 
-                _primitivePoolParams.delLiquidity, 
-                ""
-            );
-            // TODO: THere is stuff to do here around allocating liquidity, then transferring tokens to msg.sender
-        }
+        // Create the engine
+        engine = IPrimitiveEngine(primFactory.deploy(address(fractionalArtVault), address(stable)));
+        engine.create(
+            _primitivePoolParams.strike,
+            _primitivePoolParams.sigma, 
+            _primitivePoolParams.maturity, 
+            _primitivePoolParams.gamma, 
+            _primitivePoolParams.riskyPerLp, 
+            _primitivePoolParams.delLiquidity, 
+            ""
+        );
+
+        // There may be remaining ERC20 tokens left over, so transfer them to the user
+        fractionalArtVault.transfer(msg.sender, fractionalArtVault.balanceOf(address(this)));
     }
 
     /// TODO: Deposit function for holders of the fractionalized ERC20 token
@@ -164,8 +154,8 @@ contract FractionalizedOption {
         bytes calldata // data bytes passed in, unused
     ) external onlyEngine {
         // For the callback, we simply need to transfer the desired amount of assets to the engine 
-        IERC20(asset).safeTransfer(engine, delRisky);
-        IERC20(stable).safeTransfer(engine, delStable);
+        fractionalArtVault.safeTransfer(address(engine), delRisky);
+        IERC20(stable).safeTransfer(address(engine), delStable);
     }
 
     /**
@@ -179,10 +169,10 @@ contract FractionalizedOption {
         bytes calldata // data bytes passed in, unused
     ) external onlyEngine {
         if (delRisky != 0) {
-            IERC20(asset).safeTransfer(engine, delRisky);
+            fractionalArtVault.safeTransfer(address(engine), delRisky);
         }
         if (delStable != 0) {
-            IERC20(stable).safeTransfer(engine, delStable);
+            IERC20(stable).safeTransfer(address(engine), delStable);
         }
     }
 
@@ -196,8 +186,8 @@ contract FractionalizedOption {
         uint256 delStable,
         bytes calldata // data bytes passed in, unused
     ) external onlyEngine {
-        IERC20(asset).safeTransfer(engine, delRisky);
-        IERC20(stable).safeTransfer(engine, delStable);
+        fractionalArtVault.safeTransfer(address(engine), delRisky);
+        IERC20(stable).safeTransfer(address(engine), delStable);
     }
 
     /**
