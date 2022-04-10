@@ -4,7 +4,8 @@ import "@solmate/tokens/ERC721.sol";
 
 contract MockERC721 is ERC721("MockNft", "") {
     string baseURI = "yeet";
-    // Expose external mint function 
+
+    // Expose external mint function
     function mint(address to, uint256 id) external {
         _mint(to, id);
     }

@@ -6,5 +6,10 @@ import "@primitive/interfaces/callback/IPrimitiveDepositCallback.sol";
 import "@primitive/interfaces/callback/IPrimitiveLiquidityCallback.sol";
 
 // Utility interface so we don't have to list out all the Primitive Call back interfaces we support
-interface IPrimitiveCallback is IPrimitiveCreateCallback, IPrimitiveDepositCallback, IPrimitiveLiquidityCallback {
+interface IPrimitiveCallback is
+    IPrimitiveCreateCallback,
+    IPrimitiveDepositCallback,
+    IPrimitiveLiquidityCallback
+{
+
 }
