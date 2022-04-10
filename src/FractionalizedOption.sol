@@ -48,6 +48,12 @@ contract FractionalizedOption {
     /// @notice address of the ERC20 token representing the stable asset
     IERC20 immutable stable;
 
+    /// @notice poolId of our specific asset/stable pair in the primitive engine
+    bytes32 immutable poolId;
+
+    /// @notice the creator of this contract, and thus the primitive pool
+    address immutable owner;
+
     /// @notice parameters for fractionalizing NFT on fractional.art
     struct FractionalParams {
         // name of ERC20 token
@@ -87,20 +93,25 @@ contract FractionalizedOption {
     /************************************************
      *  EVENTS, ERRORS, MODIFIERS
     ***********************************************/
-
     modifier onlyEngine() {
         require(msg.sender == address(engine), "Caller must be engine");
         _;
     }
 
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Caller must be owner");
+        _;
+    }
+
     /**
      * @notice Franctionalizes the NFT and creates a Primitive Pool with specified parameters
-     * @dev User must approve this contract to control NFT
+     * @dev User must approve this contract to control NFT, and approve it to control the appropriate amount of stable token balance
      * @param _stable the ERC20 token representing the stable asset
      * @param _fractionalParams helper parameters if we fractionalize this NFT (if not, pass in uninitialized struct)
      * @param _primitivePoolParams helper parameters for creating the primitive engine & pool
      */
     constructor(address _stable, FractionalParams memory _fractionalParams, PrimitivePoolParams memory _primitivePoolParams) {
+        owner = msg.sender;
         stable = IERC20(_stable);
 
         // First, fractionalize the NFT
@@ -119,7 +130,7 @@ contract FractionalizedOption {
         // Primitive Finance Logic
         // Create the engine
         engine = IPrimitiveEngine(primFactory.deploy(address(fractionalArtVault), address(stable)));
-        engine.create(
+        (poolId, ,) = engine.create(
             _primitivePoolParams.strike,
             _primitivePoolParams.sigma, 
             _primitivePoolParams.maturity, 
@@ -129,14 +140,38 @@ contract FractionalizedOption {
             ""
         );
 
-        // There may be remaining ERC20 tokens left over, so transfer them to the user
-        fractionalArtVault.transfer(msg.sender, fractionalArtVault.balanceOf(address(this)));
+        // There's a chance there's a small number of tokens left over after engine creation
+        fractionalArtVault.safeTransfer(msg.sender, fractionalArtVault.balanceOf(address(this)));
+        stable.safeTransfer(msg.sender, stable.balanceOf(address(this)));
     }
 
-    /// TODO: Deposit function for holders of the fractionalized ERC20 token
-    /// Note: they will need to withdraw straigth from primitive (an EOA is fine since there is no callback on a withdraw action)
+    /**
+     * @notice deposits liquidity on behalf of msg.sender into the correct Primitive Pool
+     * @dev Users will need to withdraw straight from primitive (an EOA is fine since there is no callback on a withdraw action)
+     * @param delRisky amount of risky (fractional NFT ERC20 token) to deposit
+     * @param delStable amount of stable token to deposit
+     */
+    function depositLiquidity(
+        uint256 delRisky,
+        uint256 delStable
+    ) external {
+        fractionalArtVault.safeTransferFrom(msg.sender, address(this), delRisky);
+        stable.safeTransferFrom(msg.sender, address(this), delStable);
+        engine.allocate(poolId, msg.sender, delRisky, delStable, false, "");
+    }
 
     /// TODO: Withdraw function for the original deployer of this contract (owner)
+    /**
+     * @notice Allows the pool creator to withdraw the initial liquidity they provided
+     * @param delRisky amount of risky (fractional NFT ERC20 token) to withdraw
+     * @param delStable amount of stable token to withdraw
+     */
+    function withdrawInitialLiquidity(
+        uint256 delRisky,
+        uint256 delStable
+    ) external onlyOwner {
+
+    }
 
 
 
