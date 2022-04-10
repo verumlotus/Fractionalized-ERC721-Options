@@ -26,23 +26,28 @@ contract FractionalizedOption {
     /************************************************
      *  IMMUTABLES & CONSTANTS & STRUCTS
     ***********************************************/
-    // TODO add actual addresses
+    // TODO add actual addresses for the constants & immutables
 
     /// @notice the zero address
     address constant ZERO_ADDRESS = address(0x0);
 
     /// @notice address of the factory contract for Primitive Finance
-    IPrimitiveFactory constant primFactory = 0x0;
+    IPrimitiveFactory constant primFactory = IPrimitiveFactory(ZERO_ADDRESS);
 
-    /// @notice address of the engine contract for Primitive Finance
+    /// @notice address of the Primitive Engine for this asset/stable pair
     IPrimitiveEngine immutable engine;
 
     /// @notice address of the factory contract for Fractional Art
-    IFractionalVaultFactory constant fractionalArtFactory = 0x0;
+    IFractionalVaultFactory constant fractionalArtFactory = IFractionalVaultFactory(ZERO_ADDRESS);
     
     /// @notice address of the vault contract for fractional art
+    /// address of the ERC20 token representing the fractionalized NFT (risky asset in context of RMM Pool)
     IFractionalVault immutable fractionalArtVault;
 
+    /// @notice address of the ERC20 token representing the stable asset
+    IERC20 immutable stable;
+
+    /// @notice parameters for fractionalizing NFT on fractional.art
     struct FractionalParams {
         // name of ERC20 token
         string name;
@@ -58,11 +63,32 @@ contract FractionalizedOption {
         uint256 fee;
     }
 
+    /// @notice parameters for creating an RMM-01 pool
+    struct PrimitivePoolParams {
+        // asset amount to deposit as LP in RMM Pool
+        uint256 assetAmt;
+        // stable amount to deposit as LP in RMM Pool
+        uint256 stableAmt; 
+        // Strike price of the pool to calibrate to, with the same decimals as the stable token
+        uint128 strike; 
+        // Implied Volatility to calibrate to as an unsigned 32-bit integer w/ precision of 1e4, 10000 = 100%
+        uint32 sigma; 
+        // Maturity timestamp of the pool, in seconds
+        uint32 maturity;
+        // Multiplied against swap in amounts to apply fee, equal to 1 - fee %, an unsigned 32-bit integer, w/ precision of 1e4, 10000 = 100%
+        uint32 gamma; 
+        // Risky reserve per liq. with risky decimals, = 1 - N(d1), d1 = (ln(S/K)+(r*sigma^2/2))/sigma*sqrt(tau)
+        uint256 riskyPerLp;
+        // Amount of liquidity to allocate to the curve, wei value with 18 decimals of precision
+        uint256 delLiquidity;
+    }
+
     /************************************************
      *  EVENTS, ERRORS, MODIFIERS
     ***********************************************/
+
     modifier onlyEngine() {
-        require(msg.sender == engine, "Caller must be engine");
+        require(msg.sender == address(engine), "Caller must be engine");
         _;
     }
 
@@ -70,31 +96,57 @@ contract FractionalizedOption {
      * @notice creates a Primitive Pool with specified parameters, and optionally franctionalizes the NFT
      * @dev if fractionalize is set to true, user must approve this contract to control NFT
      * @param _fractionalize true if we wish to fractionalize the specified NFT via fractional.art
-     * @param _fractionalParams helper parameters if we fractionalize this NFT (if not, pass in uninitialized struct)
-     * @param _asset the ERC20 token representing a fraction of the NFT. Set to 0x0 if NFT has not been fractionalized yet
      * @param _stable the ERC20 token representing the stable asset
+     * @param _engine the Primitive Engine for this asset/stable pair. Set to 0x0 if NFT has not been fractionalized yet
+     * @param _fractionalArtVault the fractional art token vault. Also doubles as ERC20 token. Set to 0x0 if NFT has not been fractionalized yet
+     * @param _fractionalParams helper parameters if we fractionalize this NFT (if not, pass in uninitialized struct)
+     * @param _primitivePoolParams helper parameters for creating the primitive engine & pool
      */
-    constructor(bool _fractionalize, FractionalParams _fractionalParams, address _asset, address _stable) {
+    constructor(bool _fractionalize, address _stable, address _engine, address _fractionalArtVault, FractionalParams memory _fractionalParams, PrimitivePoolParams memory _primitivePoolParams) {
+        stable = IERC20(_stable);
+        engine = IPrimitiveEngine(_engine);
+        fractionalArtVault = IFractionalVault(_fractionalArtVault);
+        
         // First, fractionalize the NFT if we are requested to do so
         if (_fractionalize) {
-            (string _name, string _symbol, address _token, uint256 _id, uint256 _listPrice, uint256 _fee) = _fractionalParams;
-            // Transfer NFT to this contract
-            IERC721(_token).safeTransferFrom(msg.sender, address(this), _id);
-            IERC721(_token).approve(address(fractionalArtFactory), _id);
-            // Fix supply at 10^18
-            uint256 vaultId = fractionalArtFactory.mint(_name, _symbol, _token, _id, 1e36, _listPrice, _fee);
+            // Cache on stack
+            address _token = _fractionalParams.nftToken;
+            uint256 _tokenId = _fractionalParams.tokenId;
 
-            // TODO: Transfer the tokens minted & the curator position to msg.sender
+            // Transfer NFT to this contract
+            IERC721(_token).safeTransferFrom(msg.sender, address(this), _tokenId);
+            IERC721(_token).approve(address(fractionalArtFactory), _tokenId);
+            // Fix supply at 10^18
+            uint256 vaultId = fractionalArtFactory.mint(_fractionalParams.name, _fractionalParams.symbol, _token, _tokenId, 1e36, _fractionalParams.listPrice, _fractionalParams.fee);
+
             fractionalArtVault = fractionalArtFactory.vaults(vaultId);
-            IERC20(fractionalArtVault).transfer(msg.sender, 1e36);
             fractionalArtVault.updateCurator(msg.sender);
         }
 
+        // Primitive Finance Logic
         // Check if the engine for (asset, stable) has already been deployed
-        if (primFactory.getEngine(_asset, _stable) == ZERO_ADDRESS) {
-
+        // Use bool condition shortcircuit with _fractionalize to avoid external contract call if possible
+        if (_fractionalize || primFactory.getEngine(address(fractionalArtVault), _stable) == ZERO_ADDRESS) {
+            //TODO
+            // Create the engine
+            engine = IPrimitiveEngine(primFactory.deploy(address(fractionalArtVault), address(stable)));
+            engine.create(
+                _primitivePoolParams.strike,
+                _primitivePoolParams.sigma, 
+                _primitivePoolParams.maturity, 
+                _primitivePoolParams.gamma, 
+                _primitivePoolParams.riskyPerLp, 
+                _primitivePoolParams.delLiquidity, 
+                ""
+            );
+            // TODO: THere is stuff to do here around allocating liquidity, then transferring tokens to msg.sender
         }
     }
+
+    /// TODO: Deposit function for holders of the fractionalized ERC20 token
+    /// Note: they will need to withdraw straigth from primitive (an EOA is fine since there is no callback on a withdraw action)
+
+    /// TODO: Withdraw function for the original deployer of this contract (owner)
 
 
 
@@ -149,9 +201,9 @@ contract FractionalizedOption {
     }
 
     /**
-     * @inheritdoc IERC721Receiver
+     * @notice Receiver function for ERC721 assets
      */
-    function onERC721Received(address, address, uint256, bytes memory) public pure override returns (bytes4) {
+    function onERC721Received(address, address, uint256, bytes memory) public pure returns (bytes4) {
         return this.onERC721Received.selector;
     }
 }
