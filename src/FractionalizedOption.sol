@@ -11,7 +11,7 @@ import "@oz/token/ERC721/IERC721Receiver.sol";
 import "@oz/token/ERC721/IERC721.sol";
 
 /**
- * @title Fractionalized-ERC721-Options
+ * @title Fractionalized ERC721 Options
  * @notice Options for ERC721 assets via fractionalizing into ERC20 tokens & depositing into Primitve
  * @author verumlotus 
  */
@@ -105,7 +105,7 @@ contract FractionalizedOption {
 
     /**
      * @notice Franctionalizes the NFT and creates a Primitive Pool with specified parameters
-     * @dev User must approve this contract to control NFT, and approve it to control the appropriate amount of stable token balance
+     * @dev User must approve this contract to control NFT, and the appropriate amount of stable token balance
      * @param _stable the ERC20 token representing the stable asset
      * @param _fractionalParams helper parameters if we fractionalize this NFT (if not, pass in uninitialized struct)
      * @param _primitivePoolParams helper parameters for creating the primitive engine & pool
@@ -160,9 +160,8 @@ contract FractionalizedOption {
         engine.allocate(poolId, msg.sender, delRisky, delStable, false, "");
     }
 
-    /// TODO: Withdraw function for the original deployer of this contract (owner)
     /**
-     * @notice Allows the pool creator to withdraw the initial liquidity they provided
+     * @notice Allows the pool creator to withdraw the initial liquidity they provided in the constructor 
      * @param delRisky amount of risky (fractional NFT ERC20 token) to withdraw
      * @param delStable amount of stable token to withdraw
      */
@@ -170,10 +169,9 @@ contract FractionalizedOption {
         uint256 delRisky,
         uint256 delStable
     ) external onlyOwner {
-
+        // Withdraws from this contract's account & sends to msg.sender
+        engine.withdraw(msg.sender, delRisky, delStable);
     }
-
-
 
     /************************************************
      *  Primitive Callbacks
