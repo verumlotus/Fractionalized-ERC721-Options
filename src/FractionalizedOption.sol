@@ -17,32 +17,23 @@ import "@oz/token/ERC721/IERC721.sol";
  */
 contract FractionalizedOption {
     using SafeERC20 for IERC20; 
-    using SafeERC20 for IFractionalVault;
+    using SafeERC20 for IFractionalVault;    
 
     /************************************************
-     *  STORAGE
+     *  IMMUTABLES & CONSTANTS
     ***********************************************/
-    
-
-    /************************************************
-     *  IMMUTABLES & CONSTANTS & STRUCTS
-    ***********************************************/
-    // TODO add actual addresses for the constants & immutables
-
-    /// @notice the zero address
-    address constant ZERO_ADDRESS = address(0x0);
 
     /// @notice address of the factory contract for Primitive Finance
-    IPrimitiveFactory constant primFactory = IPrimitiveFactory(ZERO_ADDRESS);
+    IPrimitiveFactory constant primFactory = IPrimitiveFactory(0x5cA2D631a37B21E5de2BcB0CbB892D723A96b068);
 
     /// @notice address of the Primitive Engine for this asset/stable pair
     IPrimitiveEngine immutable engine;
 
     /// @notice address of the factory contract for Fractional Art
-    IFractionalVaultFactory constant fractionalArtFactory = IFractionalVaultFactory(ZERO_ADDRESS);
+    IFractionalVaultFactory constant fractionalArtFactory = IFractionalVaultFactory(0x85Aa7f78BdB2DE8F3e0c0010d99AD5853fFcfC63);
     
     /// @notice address of the vault contract for fractional art
-    /// address of the ERC20 token representing the fractionalized NFT (risky asset in context of RMM Pool)
+    /// also is address of the ERC20 token representing the fractionalized NFT (risky asset in context of RMM Pool)
     IFractionalVault immutable fractionalArtVault;
 
     /// @notice address of the ERC20 token representing the stable asset
@@ -53,6 +44,10 @@ contract FractionalizedOption {
 
     /// @notice the creator of this contract, and thus the primitive pool
     address immutable owner;
+
+    /************************************************
+     *  STRUCTS
+    ***********************************************/
 
     /// @notice parameters for fractionalizing NFT on fractional.art
     struct FractionalParams {
@@ -93,6 +88,7 @@ contract FractionalizedOption {
     /************************************************
      *  EVENTS, ERRORS, MODIFIERS
     ***********************************************/
+    
     modifier onlyEngine() {
         require(msg.sender == address(engine), "Caller must be engine");
         _;
