@@ -1,0 +1,10 @@
+*.json
+*.js
+*.md
+*.yaml
+lib/
+cache/
+node_modules/
+out/
+typechain/
+coverage/
